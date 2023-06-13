@@ -165,22 +165,17 @@ async function run() {
     });
 
 
-    // app.get("/my-enroll-course/:email", async (req, res) => {
-    //   const { email } = req.params;
-    //   const result = await orderCollection
-    //     .find({ "order.customerEmail": email })
-    //     .sort({ "order.price": 1 })
-    //     .toArray();
-    //   res.send(result);
-    // });
+    app.get("/my-enroll-course/:email", async (req, res) => {
+      const { email } = req.params;
+      const result = await orderCollection
+        .find({ "order.customerEmail": email })
+        .sort({ "order.price": 1 })
+        .toArray();
+      res.send(result);
+    });
 
 
     
-
-
-
-
-
 
     // Send a ping to confirm a successful connection
     await client.db("admin").command({ ping: 1 });
