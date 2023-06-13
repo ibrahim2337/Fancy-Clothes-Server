@@ -32,7 +32,7 @@ async function run() {
     await client.connect();
 
     const courseCollection = client.db("fancy-clothes").collection("course");
-
+    const cartCollection = client.db("fancy-clothes").collection("cart");
 
 
     app.get('/course', async(req,res)=>{
@@ -48,6 +48,21 @@ async function run() {
       const result = await cartCollection.insertOne(item);
       res.send(result);
     });
+    app.get("/course-cart", async (req, res) => {
+      const email = req.query.email;
+
+      if (!email) {
+        res.send([]);
+      }
+
+      
+
+      const query = { email: email };
+      const result = await cartCollection.find(query).toArray();
+      res.send(result);
+    });
+
+    
 
 
 
