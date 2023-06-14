@@ -1,14 +1,14 @@
-const express= require('express');
-const app =express();
-const cors = require('cors');
-
-require('dotenv').config();
+const express = require("express");
+require("dotenv").config();
+const app = express();
+const cors = require("cors");
+const jwt = require("jsonwebtoken");
 const SSLCommerzPayment = require("sslcommerz-lts");
 
 
 const store_id = process.env.STORE_ID;
 const store_passwd = process.env.STORE_PASS;
-const is_live = false;
+const is_live = false; //true for live, false for sandbox
 
 const port = process.env.PORT || 5000;
 
@@ -18,9 +18,10 @@ app.use(cors());
 app.use(express.json());
 
 
-
-const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
+const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.j3spxdo.mongodb.net/?retryWrites=true&w=majority`;
+
+
 
 // Create a MongoClient with a MongoClientOptions object to set the Stable API version
 const client = new MongoClient(uri, {
@@ -28,54 +29,33 @@ const client = new MongoClient(uri, {
     version: ServerApiVersion.v1,
     strict: true,
     deprecationErrors: true,
-  }
+  },
 });
 
 async function run() {
   try {
     // Connect the client to the server	(optional starting in v4.7)
-    await client.connect();
+    // await client.connect();
 
-    const courseCollection = client.db("fancy-clothes").collection("course");
-    const cartCollection = client.db("fancy-clothes").collection("cart");
-    const orderCollection = client.db("fancy-clothes").collection("order");
+    const courseCollection = client.db("fancy-clothes-db").collection("course");
 
+    const cartCollection = client.db("fancy-clothes-db").collection("cart");
+    const userCollection = client.db("fancy-clothes-db").collection("user");
+    const orderCollection = client.db("fancy-clothes-db").collection("order");
 
-    app.get('/course', async(req,res)=>{
-      const cursor = courseCollection.find();
-      const result = await cursor.toArray();
-      res.send(result);
-    
-    })
-
-    app.post("/course-cart", async (req, res) => {
-      const item = req.body;
-      console.log(item);
-      const result = await cartCollection.insertOne(item);
-      res.send(result);
-    });
-    app.get("/course-cart", async (req, res) => {
-      const email = req.query.email;
-
-      if (!email) {
-        res.send([]);
+    app.post("/users", async (req, res) => {
+      const user = req.body;
+      const email = user.email;
+      const query = { email };
+      const existingUser = await userCollection.findOne(query);
+      if (existingUser) {
+        return res.send({ message: "" });
       }
 
-      
-
-      const query = { email: email };
-      const result = await cartCollection.find(query).toArray();
+      const result = await userCollection.insertOne(user);
       res.send(result);
     });
 
-
-    app.delete("/course/delete/:id", async (req, res) => {
-      const id = req.params.id;
-      console.log(id);
-      const query = { _id: new ObjectId(id) };
-      const result = await cartCollection.deleteOne(query);
-      res.send(result);
-    });
     app.post("/order", async (req, res) => {
       const order = req.body;
       const { price, title, customerName, customerEmail } = order;
@@ -164,6 +144,223 @@ async function run() {
       });
     });
 
+    app.get("/users", async (req, res) => {
+      const result = await userCollection.find().toArray();
+      console.log(result);
+      res.send(result);
+    });
+
+    app.get("/popular-course", async (req, res) => {
+      const data = await courseCollection
+        .find({})
+        .sort({ totalEnroll: -1 })
+        .limit(6)
+        .toArray();
+      res.send(data);
+    });
+
+    app.patch("/users/admin/:id",  async (req, res) => {
+      const id = req.params.id;
+      const filter = { _id: new ObjectId(id) };
+      const updateDoc = {
+        $set: {
+          role: "admin",
+        },
+      };
+      const result = await userCollection.updateOne(filter, updateDoc);
+      res.send(result);
+    });
+    app.patch("/users/instructor/:id", async (req, res) => {
+      const id = req.params.id;
+      const filter = { _id: new ObjectId(id) };
+      const updateDoc = {
+        $set: {
+          role: "instructor",
+        },
+      };
+      const result = await userCollection.updateOne(filter, updateDoc);
+      res.send(result);
+    });
+
+    app.get("/get-my-course/:email", async (req, res) => {
+      const { email } = req.params;
+      const myCourse = await courseCollection
+        .find({
+          "instructor.email": email,
+        })
+        .toArray();
+
+      res.send(myCourse);
+    });
+
+    app.get("/users/:email", async (req, res) => {
+      const email = req.params.email;
+      const query = { email: email };
+      const user = await userCollection.findOne(query);
+      res.send(user);
+    });
+
+    app.delete("/users/delete/:id", async (req, res) => {
+      const id = req.params.id;
+      console.log(id);
+      const query = { _id: new ObjectId(id) };
+      const result = await userCollection.deleteOne(query);
+      res.send(result);
+    });
+
+    app.get("/course", async (req, res) => {
+      const data = courseCollection.find({ status: "approve" });
+      const result = await data.toArray();
+      res.send(result);
+    });
+
+    app.get("/course-all", async (req, res) => {
+      const data = courseCollection.find({});
+      const result = await data.toArray();
+      res.send(result);
+    });
+
+    app.patch("/update/course", async (req, res) => {
+      console.log(req.body);
+      const { courseId } = req.body;
+      const result = await courseCollection.updateOne(
+        { courseId: courseId },
+        {
+          $set: {
+            status: "approve",
+          },
+        }
+      );
+      res.send(result);
+    });
+
+    app.patch("/update/course/deny", async (req, res) => {
+      console.log(req.body);
+      const { courseId, feedback } = req.body;
+      const result = await courseCollection.updateOne(
+        { courseId: courseId },
+        {
+          $set: {
+            status: "deny",
+            feedback: feedback,
+          },
+        }
+      );
+      res.send(result);
+    });
+
+    app.post("/course", async (req, res) => {
+      const newCourse = req.body;
+      const {
+        name,
+        description,
+        price,
+        duration,
+        available_seats,
+        image,
+        instructor,
+      } = newCourse;
+
+      const bigCourseData = await courseCollection
+        .find({})
+        .sort({ courseId: -1 })
+        .limit(1)
+        .toArray();
+
+      let courseId = bigCourseData[0].courseId + 1;
+
+      const oldCourse = await courseCollection.findOne({
+        "instructor.email": instructor.email,
+      });
+      let courseQuantity;
+      if (oldCourse === null) {
+        courseQuantity = 1;
+      } else {
+        courseQuantity = parseInt(oldCourse?.instructor?.course_taken) + 1;
+      }
+      data = {
+        name: name,
+        courseId: courseId,
+        description: description,
+        price: price,
+        status: false,
+        totalEnroll: 0,
+        duration: duration,
+        available_seats: parseInt(available_seats),
+        image: image,
+        instructor: {
+          name: instructor.name,
+          email: instructor.email,
+          image: instructor.image,
+          course_name: instructor.course_name,
+          course_taken: courseQuantity,
+        },
+      };
+
+      const result = await courseCollection.insertOne(data);
+      res.send(result);
+    });
+
+    app.get("/courses", async (req, res) => {
+      const { email } = req.query;
+
+      const query = { "instructor.email": email };
+      const result = await courseCollection.find(query).toArray();
+
+      res.send(result);
+    });
+
+    app.delete("/course/:id", async (req, res) => {
+      const id = req.params.id;
+      const query = { _id: new ObjectId(id) };
+      const result = await courseCollection.deleteOne(query);
+      res.send(result);
+    });
+
+    app.post("/course-cart", async (req, res) => {
+      const item = req.body;
+      console.log(item);
+      const result = await cartCollection.insertOne(item);
+      res.send(result);
+    });
+
+    app.get("/get_instructors", async (req, res) => {
+      const allInstructor = await courseCollection
+        .find()
+        .project({ instructor: 1 })
+        .toArray();
+      console.log(allInstructor);
+
+      const filteredData = Object.values(
+        allInstructor.reduce((acc, { instructor }) => {
+          const { email, course_taken } = instructor;
+          if (
+            !acc[email] ||
+            course_taken > acc[email].instructor.course_taken
+          ) {
+            acc[email] = { instructor };
+          }
+          return acc;
+        }, {})
+      );
+
+      res.send(filteredData);
+    });
+
+    app.get("/course-cart",  async (req, res) => {
+      const email = req.query.email;
+
+      const query = { email: email };
+      const result = await cartCollection.find(query).toArray();
+      res.send(result);
+    });
+    app.delete("/course/delete/:id", async (req, res) => {
+      const id = req.params.id;
+      console.log(id);
+      const query = { _id: new ObjectId(id) };
+      const result = await cartCollection.deleteOne(query);
+      res.send(result);
+    });
 
     app.get("/my-enroll-course/:email", async (req, res) => {
       const { email } = req.params;
@@ -174,12 +371,11 @@ async function run() {
       res.send(result);
     });
 
-
-    
-
     // Send a ping to confirm a successful connection
     await client.db("admin").command({ ping: 1 });
-    console.log("Pinged your deployment. You successfully connected to MongoDB!");
+    console.log(
+      "Pinged your deployment. You successfully connected to MongoDB!"
+    );
   } finally {
     // Ensures that the client will close when you finish/error
     // await client.close();
@@ -187,15 +383,10 @@ async function run() {
 }
 run().catch(console.dir);
 
-
-
-
-
-
-app.get('/', (req, res) => {
-  res.send('Hello World!')
-})
+app.get("/", (req, res) => {
+  res.send("Hello World!");
+});
 
 app.listen(port, () => {
-  console.log(`Example app listening on port ${port}`)
-})
+  console.log(`Example app listening on port ${port}`);
+});
